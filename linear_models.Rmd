@@ -1,0 +1,125 @@
+---
+title: "linear_models"
+author: "Tianshu Liu"
+date: "2022-11-10"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(stars = review_scores_location / 2) %>% 
+  rename(
+    borough = neighbourhood_group,
+    neighborhood = neighbourhood) %>% 
+  filter(borough != "Staten Island") %>% 
+  select(price, stars, borough, neighborhood, room_type)
+```
+
+## Fit
+
+```{r}
+# default reference category is category #1
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+
+fit
+
+summary(fit)
+
+fit %>% 
+  broom::tidy() %>% 
+  mutate(
+    term = str_replace(term, "borough", "Borough: ")
+  ) %>% 
+  select(term, estimate, p.value) %>% 
+  knitr::kable(digits = 2)
+```
+
+
+```{r}
+# change reference category to the most frequent city
+fit = 
+  nyc_airbnb %>% 
+  mutate(
+    borough = fct_infreq(borough)
+  ) %>% 
+  lm(price ~ stars + borough, data = .)
+
+fit %>% 
+  broom::tidy() %>% 
+  mutate(
+    term = str_replace(term, "borough", "Borough: ")
+  ) %>% 
+  select(term, estimate, p.value) %>% 
+  knitr::kable(digits = 2)
+
+
+# AIC : Akaike Information Criterion (a mathematical method for evaluating how well a model fits the data it was generated from)
+
+fit %>% 
+  broom::glance() %>% 
+  select(AIC)
+
+```
+
+## Diagnositics
+
+```{r}
+# add residuals
+modelr::add_residuals(nyc_airbnb, fit)
+
+# try to visualize
+modelr::add_residuals(nyc_airbnb, fit) %>% 
+  ggplot(aes(x = stars, y = resid)) + 
+  geom_point()
+
+nyc_airbnb %>% 
+  modelr::add_residuals(fit) %>% 
+  ggplot(aes(x = borough, y = resid)) + 
+  geom_violin() + 
+  ylim(-250, 250)
+```
+
+## Hypothesis testing
+
+```{r}
+fit %>% 
+  broom::tidy()
+
+fit_null = lm(price ~ stars, data = nyc_airbnb)
+fit_alt = lm(price ~ stars + borough, data = nyc_airbnb)
+
+anova(fit_null, fit_alt) %>% 
+  broom::tidy()
+```
+
+## Interaction
+
+```{r}
+fit = 
+  nyc_airbnb %>% 
+  lm(price ~ stars + room_type * borough, data = .) %>% 
+  broom::tidy()
+
+fit
+```
+
+```{r}
+nyc_airbnb %>% 
+  nest(dataaa = -borough) %>% 
+  mutate(
+    models = map(.x = dataaa, ~lm(price ~ stars + room_type, data = .x)),
+    results = map(models, broom::tidy)
+  ) %>% 
+  select(borough, results) %>% 
+  unnest(results)
+```
+
