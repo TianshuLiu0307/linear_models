@@ -92,6 +92,7 @@ train_df %>%
   mutate(model = fct_inorder(model)) %>% 
   ggplot(aes(x = x, y = y)) + 
   geom_point() + 
+  geom_point(data = test_df, color = "red") +
   geom_line(aes(y = pred), color = "red") + 
   facet_wrap(~model)
 ```

@@ -126,6 +126,7 @@ train_df %>%
   mutate(model = fct_inorder(model)) %>% 
   ggplot(aes(x = x, y = y)) + 
   geom_point() + 
+  geom_point(data = test_df, color = "red") +
   geom_line(aes(y = pred), color = "red") + 
   facet_wrap(~model)
 ```
@@ -217,23 +218,174 @@ cv_df =
     test = map(test, as.tibble)
   ) %>% 
   mutate(
-    linear_fits = map(.x = train, ~lm(y ~ x, data = .x)) 
+    linear_fits = map(.x = train, ~lm(y ~ x, data = .x)) ,
+    smooth_fits = map(.x = train, ~mgcv::gam(y ~ s(x), data = .x)),
+    wiggly_fits = map(.x = train, ~mgcv::gam(y ~ s(x, k = 30), sp = 10e-6, data = .x))
+  ) %>% 
+  mutate(
+    rmse_linear = map2_dbl(.x = linear_fits, .y = test, ~rmse(.x, .y)),
+    rmse_smooth = map2_dbl(.x = smooth_fits, .y = test, ~rmse(.x, .y)),
+    rmse_wiggly = map2_dbl(.x = wiggly_fits, .y = test, ~rmse(.x, .y))
   )
   
 cv_df
 ```
 
-    ## # A tibble: 100 × 4
-    ##    train             test              .id   linear_fits
-    ##    <list>            <list>            <chr> <list>     
-    ##  1 <tibble [79 × 3]> <tibble [21 × 3]> 001   <lm>       
-    ##  2 <tibble [79 × 3]> <tibble [21 × 3]> 002   <lm>       
-    ##  3 <tibble [79 × 3]> <tibble [21 × 3]> 003   <lm>       
-    ##  4 <tibble [79 × 3]> <tibble [21 × 3]> 004   <lm>       
-    ##  5 <tibble [79 × 3]> <tibble [21 × 3]> 005   <lm>       
-    ##  6 <tibble [79 × 3]> <tibble [21 × 3]> 006   <lm>       
-    ##  7 <tibble [79 × 3]> <tibble [21 × 3]> 007   <lm>       
-    ##  8 <tibble [79 × 3]> <tibble [21 × 3]> 008   <lm>       
-    ##  9 <tibble [79 × 3]> <tibble [21 × 3]> 009   <lm>       
-    ## 10 <tibble [79 × 3]> <tibble [21 × 3]> 010   <lm>       
-    ## # … with 90 more rows
+    ## # A tibble: 100 × 9
+    ##    train    test     .id   linear_fits smooth_…¹ wiggl…² rmse_…³ rmse_…⁴ rmse_…⁵
+    ##    <list>   <list>   <chr> <list>      <list>    <list>    <dbl>   <dbl>   <dbl>
+    ##  1 <tibble> <tibble> 001   <lm>        <gam>     <gam>     0.675   0.298   0.375
+    ##  2 <tibble> <tibble> 002   <lm>        <gam>     <gam>     0.655   0.336   0.377
+    ##  3 <tibble> <tibble> 003   <lm>        <gam>     <gam>     0.785   0.295   0.337
+    ##  4 <tibble> <tibble> 004   <lm>        <gam>     <gam>     0.874   0.263   0.395
+    ##  5 <tibble> <tibble> 005   <lm>        <gam>     <gam>     0.784   0.250   0.341
+    ##  6 <tibble> <tibble> 006   <lm>        <gam>     <gam>     0.844   0.324   0.356
+    ##  7 <tibble> <tibble> 007   <lm>        <gam>     <gam>     0.791   0.274   0.349
+    ##  8 <tibble> <tibble> 008   <lm>        <gam>     <gam>     0.758   0.310   0.468
+    ##  9 <tibble> <tibble> 009   <lm>        <gam>     <gam>     0.621   0.287   0.409
+    ## 10 <tibble> <tibble> 010   <lm>        <gam>     <gam>     0.839   0.338   0.396
+    ## # … with 90 more rows, and abbreviated variable names ¹​smooth_fits,
+    ## #   ²​wiggly_fits, ³​rmse_linear, ⁴​rmse_smooth, ⁵​rmse_wiggly
+
+make a boxplot
+
+``` r
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_boxplot()
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-9-1.png" width="90%" />
+
+``` r
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-10-1.png" width="90%" />
+
+``` r
+growth_df = read_csv("./data/nepalese_children.csv")
+```
+
+``` r
+growth_df %>% 
+  ggplot(aes(x = weight, y = armc)) + 
+  geom_point()
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-12-1.png" width="90%" />
+
+``` r
+growth_df = 
+  growth_df %>% 
+  mutate(
+    weight_pwl = (weight > 7) * (weight - 7)
+  )
+```
+
+``` r
+linear_model = lm(armc ~ weight, data = growth_df)
+pwl_model = lm(armc ~ weight + weight_pwl, data = growth_df)
+smooth_model = mgcv::gam(armc ~ s(weight), data = growth_df)
+```
+
+``` r
+growth_df %>% 
+  add_predictions(pwl_model) %>% 
+  ggplot(aes(x = weight, y = armc)) + 
+  geom_point(alpha = .3) + 
+  geom_line(aes(x = weight, y = pred), color = "red")
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-15-1.png" width="90%" />
+
+``` r
+growth_df %>% 
+  gather_predictions(linear_model, pwl_model, smooth_model) %>% 
+  ggplot(aes(x = weight, y = armc)) + 
+  geom_point(alpha = .3) + 
+  geom_line(aes(x = weight, y = pred), color = "red") + 
+  facet_grid(~model)
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-16-1.png" width="90%" />
+
+cross validation
+
+``` r
+raw_growth_df = 
+  read_csv("./data/nepalese_children.csv") %>% 
+  mutate(
+    weight_pwl = (weight > 7) * (weight - 7)
+  )
+
+cv_df = 
+  crossv_mc(raw_growth_df, 100)
+
+cv_df = 
+  cv_df %>% 
+  mutate(
+    train = map(train, as.tibble),
+    test = map(test, as.tibble)
+  ) %>% 
+  mutate(
+    linear_model = map(.x = train, ~lm(armc ~ weight, data = .x)) ,
+    pwl_model = map(.x = train, ~lm(armc ~ weight + weight_pwl, data = .x)),
+    smooth_model = map(.x = train, ~mgcv::gam(armc ~ s(weight), data = .x))
+  ) %>% 
+  mutate(
+    rmse_linear = map2_dbl(.x = linear_model, .y = test, ~rmse(.x, .y)),
+    rmse_pwl = map2_dbl(.x = pwl_model, .y = test, ~rmse(.x, .y)),
+    rmse_smooth = map2_dbl(.x = smooth_model, .y = test, ~rmse(.x, .y))
+  )
+  
+cv_df
+```
+
+    ## # A tibble: 100 × 9
+    ##    train    test     .id   linear_model pwl_mo…¹ smoot…² rmse_…³ rmse_…⁴ rmse_…⁵
+    ##    <list>   <list>   <chr> <list>       <list>   <list>    <dbl>   <dbl>   <dbl>
+    ##  1 <tibble> <tibble> 001   <lm>         <lm>     <gam>     0.801   0.777   0.774
+    ##  2 <tibble> <tibble> 002   <lm>         <lm>     <gam>     0.804   0.770   0.763
+    ##  3 <tibble> <tibble> 003   <lm>         <lm>     <gam>     0.831   0.804   0.801
+    ##  4 <tibble> <tibble> 004   <lm>         <lm>     <gam>     0.803   0.769   0.762
+    ##  5 <tibble> <tibble> 005   <lm>         <lm>     <gam>     0.827   0.789   0.791
+    ##  6 <tibble> <tibble> 006   <lm>         <lm>     <gam>     0.751   0.737   0.728
+    ##  7 <tibble> <tibble> 007   <lm>         <lm>     <gam>     0.781   0.754   0.753
+    ##  8 <tibble> <tibble> 008   <lm>         <lm>     <gam>     0.781   0.762   0.755
+    ##  9 <tibble> <tibble> 009   <lm>         <lm>     <gam>     0.778   0.767   0.760
+    ## 10 <tibble> <tibble> 010   <lm>         <lm>     <gam>     0.770   0.765   0.761
+    ## # … with 90 more rows, and abbreviated variable names ¹​pwl_model,
+    ## #   ²​smooth_model, ³​rmse_linear, ⁴​rmse_pwl, ⁵​rmse_smooth
+
+``` r
+cv_df %>% 
+  select(starts_with("rmse")) %>% 
+  pivot_longer(
+    everything(),
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + 
+  geom_boxplot()
+```
+
+<img src="cross_validation_files/figure-gfm/unnamed-chunk-17-1.png" width="90%" />
